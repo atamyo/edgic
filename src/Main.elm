@@ -3,10 +3,11 @@ module Main exposing (..)
 -- Keep track of edgic
 
 import Browser
-import Html exposing (Html, li, text, ul)
+import Element exposing (..)
 import Http
 import Json.Decode exposing (Decoder, decodeString, field, list, string)
 import Keys exposing (key)
+import RemoteData exposing (RemoteData(..), WebData)
 
 
 
@@ -22,18 +23,41 @@ main =
 -- MODEL
 
 
-type Model
-    = Failure
-    | Loading
-    | Success String
+type alias Model =
+    { readSheetResponse : WebData String
+    , contestants : List Contestant
+    }
+
+
+type alias Contestant =
+    { name : Name
+    , edgic : Edgic
+    }
+
+
+type alias Name =
+    String
+
+
+type alias Edgic =
+    List String
+
+
+type Rating
+    = INV
+    | UTR
+    | MOR
+    | CP
+    | OTT
+    | NoRating
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Loading
+    ( { readSheetResponse = Loading, contestants = [] }
     , Http.get
         { url = "https://sheets.googleapis.com/v4/spreadsheets/15ktMELDMRoU08C88m96h2aH-2Fka5hhYwHHl_4ws_-0/values/C2:I21?key=" ++ key
-        , expect = Http.expectString GotText
+        , expect = Http.expectString (RemoteData.fromResult >> GotText)
         }
     )
 
@@ -43,19 +67,43 @@ init _ =
 
 
 type Msg
-    = GotText (Result Http.Error String)
+    = GotText (WebData String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg _ =
+update msg model =
     case msg of
-        GotText result ->
-            case result of
-                Ok text ->
-                    ( Success text, Cmd.none )
+        GotText response ->
+            case response of
+                Success data ->
+                    ( { model | readSheetResponse = response, contestants = parseResponse data }, Cmd.none )
 
                 _ ->
-                    ( Failure, Cmd.none )
+                    ( { model | readSheetResponse = response, contestants = [] }, Cmd.none )
+
+
+parseResponse : String -> List Contestant
+parseResponse response =
+    let
+        rowToContestant row =
+            case row of
+                name :: edgic ->
+                    Contestant name edgic
+
+                [] ->
+                    Contestant "Welp" [ "Welp" ]
+
+        contestants rows =
+            rows
+                |> List.map (\row -> rowToContestant row)
+                |> List.filter (\contestant -> contestant /= Contestant "Welp" [ "Welp" ])
+    in
+    case decodeString sheetDecoder response of
+        Ok rows ->
+            contestants rows
+
+        Err _ ->
+            []
 
 
 sheetDecoder : Decoder (List (List String))
@@ -80,34 +128,41 @@ view : Model -> Browser.Document Msg
 view model =
     let
         body =
-            case model of
-                Failure ->
+            case model.readSheetResponse of
+                Failure _ ->
                     text "Failed"
 
                 Loading ->
                     text "Loading..."
 
-                Success response ->
-                    edgicView response
+                NotAsked ->
+                    text "Not Asked"
+
+                Success _ ->
+                    edgicView model.contestants
     in
-    { title = "Edgic Viewer", body = [ body ] }
+    { title = "Edgic Viewer", body = [ layout [] body ] }
 
 
-edgicView : String -> Html Msg
-edgicView response =
+edgicView : List Contestant -> Element Msg
+edgicView contestants =
     let
-        decoded =
-            decodeString sheetDecoder response
+        nameToElement name =
+            el [ width (px 100) ] (text name)
 
-        result =
-            case decoded of
-                Ok rows ->
-                    rows
+        edgicToElements : List String -> List (Element Msg)
+        edgicToElements edgic =
+            List.map edgicCell edgic
 
-                Err _ ->
-                    [ [ "Decode error" ] ]
+        contestantToRow contestant =
+            row [ padding 10, spacing 7 ] (nameToElement contestant.name :: edgicToElements contestant.edgic)
 
         displayedRows =
-            List.map (\row -> li [] [ text <| String.join " " row ]) result
+            List.map (\contestant -> contestantToRow contestant) contestants
     in
-    ul [] displayedRows
+    textColumn [] displayedRows
+
+
+edgicCell : String -> Element Msg
+edgicCell edgic =
+    el [ width (px 100) ] (text edgic)

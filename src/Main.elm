@@ -15,7 +15,7 @@ import Keys exposing (key)
 
 main : Program () Model Msg
 main =
-    Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }
+    Browser.document { init = init, update = update, subscriptions = subscriptions, view = view }
 
 
 
@@ -76,17 +76,21 @@ subscriptions _ =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    case model of
-        Failure ->
-            text "Failed"
+    let
+        body =
+            case model of
+                Failure ->
+                    text "Failed"
 
-        Loading ->
-            text "Loading..."
+                Loading ->
+                    text "Loading..."
 
-        Success response ->
-            edgicView response
+                Success response ->
+                    edgicView response
+    in
+    { title = "Edgic Viewer", body = [ body ] }
 
 
 edgicView : String -> Html Msg
